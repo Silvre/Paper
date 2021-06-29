@@ -1,0 +1,119 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Silvre <silvre76@gmail.com>
+Date: Mon, 28 Jun 2021 23:17:23 -0500
+Subject: [PATCH] Implement PlayerOperatorStatusChangeEvent
+
+This also includes a change to PlayerList#op/deop,
+returning whether the modification was successful or not.
+
+diff --git a/src/main/java/net/minecraft/server/commands/DeOpCommands.java b/src/main/java/net/minecraft/server/commands/DeOpCommands.java
+index 139359e8fad3f2d1bc9a528545e92bc47d70d2d0..d318873d7d8a119ab7a039c32cecca25e4a696f9 100644
+--- a/src/main/java/net/minecraft/server/commands/DeOpCommands.java
++++ b/src/main/java/net/minecraft/server/commands/DeOpCommands.java
+@@ -31,7 +31,9 @@ public class DeOpCommands {
+ 
+         for(GameProfile gameProfile : targets) {
+             if (playerList.isOp(gameProfile)) {
+-                playerList.deop(gameProfile);
++                // Paper start - return value
++                if(!playerList.deop(gameProfile)) return 0;
++                // Paper end
+                 ++i;
+                 source.sendSuccess(new TranslatableComponent("commands.deop.success", targets.iterator().next().getName()), true);
+             }
+diff --git a/src/main/java/net/minecraft/server/commands/OpCommand.java b/src/main/java/net/minecraft/server/commands/OpCommand.java
+index 79bf5b56386c50d9ae7c781042f29f7cb93fc8ff..024026e35174b187c9169dc0054a0da8698a599e 100644
+--- a/src/main/java/net/minecraft/server/commands/OpCommand.java
++++ b/src/main/java/net/minecraft/server/commands/OpCommand.java
+@@ -36,7 +36,9 @@ public class OpCommand {
+ 
+         for(GameProfile gameProfile : targets) {
+             if (!playerList.isOp(gameProfile)) {
+-                playerList.op(gameProfile);
++                // Paper start - return value
++                if(!playerList.op(gameProfile)) return 0;
++                // Paper end
+                 ++i;
+                 source.sendSuccess(new TranslatableComponent("commands.op.success", targets.iterator().next().getName()), true);
+             }
+diff --git a/src/main/java/net/minecraft/server/dedicated/DedicatedPlayerList.java b/src/main/java/net/minecraft/server/dedicated/DedicatedPlayerList.java
+index 918f5221e94cbc867349c69c83563e225d2fef1d..3c1230ed5513246488b4fcf8bf18fe9df8848a47 100644
+--- a/src/main/java/net/minecraft/server/dedicated/DedicatedPlayerList.java
++++ b/src/main/java/net/minecraft/server/dedicated/DedicatedPlayerList.java
+@@ -40,17 +40,21 @@ public class DedicatedPlayerList extends PlayerList {
+         this.getServer().storeUsingWhiteList(whitelistEnabled);
+     }
+ 
++    // Paper start - return values
+     @Override
+-    public void op(GameProfile profile) {
+-        super.op(profile);
++    public boolean op(GameProfile profile) {
++        boolean success = super.op(profile);
+         this.saveOps();
++        return success;
+     }
+ 
+     @Override
+-    public void deop(GameProfile profile) {
+-        super.deop(profile);
++    public boolean deop(GameProfile profile) {
++        boolean success = super.deop(profile);
+         this.saveOps();
++        return success;
+     }
++    // Paper end
+ 
+     @Override
+     public void reloadWhiteList() {
+diff --git a/src/main/java/net/minecraft/server/players/PlayerList.java b/src/main/java/net/minecraft/server/players/PlayerList.java
+index a6ecbb7eb1df7923d58366327e0f00512a3a1677..e63ded791dde4ca9da53476bacd2f1efaca17e6d 100644
+--- a/src/main/java/net/minecraft/server/players/PlayerList.java
++++ b/src/main/java/net/minecraft/server/players/PlayerList.java
+@@ -22,6 +22,8 @@ import java.util.Set;
+ import java.util.UUID;
+ import java.util.function.Function;
+ import javax.annotation.Nullable;
++
++import io.papermc.paper.event.player.PlayerOperatorStatusChangeEvent;
+ import net.minecraft.ChatFormatting;
+ import net.minecraft.Util;
+ import net.minecraft.core.BlockPos;
+@@ -1117,25 +1119,33 @@ public abstract class PlayerList {
+         return this.ipBans;
+     }
+ 
+-    public void op(GameProfile profile) {
++    // Paper start - PlayerOperatorStatusChangeEvent
++    public boolean op(GameProfile profile) {
++        final io.papermc.paper.event.player.PlayerOperatorStatusChangeEvent event;
++        event = new io.papermc.paper.event.player.PlayerOperatorStatusChangeEvent(cserver.getOfflinePlayer(profile), io.papermc.paper.event.player.PlayerOperatorStatusChangeEvent.Operation.OP);
++        if(!event.callEvent()) return false;
+         this.ops.add(new ServerOpListEntry(profile, this.server.getOperatorUserPermissionLevel(), this.ops.canBypassPlayerLimit(profile)));
+         ServerPlayer entityplayer = this.getPlayer(profile.getId());
+ 
+         if (entityplayer != null) {
+             this.sendPlayerPermissionLevel(entityplayer);
+         }
+-
++        return true;
+     }
+ 
+-    public void deop(GameProfile profile) {
++    public boolean deop(GameProfile profile) {
++        final io.papermc.paper.event.player.PlayerOperatorStatusChangeEvent event;
++        event = new io.papermc.paper.event.player.PlayerOperatorStatusChangeEvent(cserver.getOfflinePlayer(profile), io.papermc.paper.event.player.PlayerOperatorStatusChangeEvent.Operation.DEOP);
++        if(!event.callEvent()) return false;
+         this.ops.remove(profile);
+         ServerPlayer entityplayer = this.getPlayer(profile.getId());
+ 
+         if (entityplayer != null) {
+             this.sendPlayerPermissionLevel(entityplayer);
+         }
+-
++        return true;
+     }
++    // Paper end
+ 
+     private void sendPlayerPermissionLevel(ServerPlayer player, int permissionLevel) {
+         // Paper start - add recalculatePermissions parameter
